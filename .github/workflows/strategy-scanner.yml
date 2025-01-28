@@ -1,0 +1,37 @@
+name: Strategy Factory Scanner
+
+on:
+  schedule:
+    - cron: '45 0 * * *'  # Runs at 00:45 UTC daily. yDaemon restarts at 1:00
+  workflow_dispatch:      # Allow manual triggers
+
+jobs:
+  scan-factories:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip" # caching pip dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run Factory Scanner
+        env:
+          RPC_1: ${{ secrets.RPC_1 }} # mainnet
+          RPC_8453: ${{ secrets.RPC_8453 }} # base
+          RPC_42161: ${{ secrets.RPC_42161 }} # arbitrum
+          # Add other chain RPCs as needed
+        run: python scripts/scan_factories.py
+
+      - name: Commit new strategy files
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add strategy/
+          git commit -m "ci: Add new strategy files" || echo "No changes to commit"
+          git push

@@ -45,34 +45,40 @@ class FactoryScanner:
         """Scan a single factory for deployed strategies by checking deployment events."""
         provider = self.get_provider(chain_id)
 
+        deployment = factory_data.get("deployment", {})
+        if not deployment:
+            raise ValueError(
+                f"No deployment configuration found for factory {factory_address}"
+            )
+
         # Use the deployEventAbi from factory_data
-        factory_abi = factory_data.get("deployEventAbi", {})
-        if not factory_abi:
+        event_abi = deployment.get("eventAbi", {})
+        if not event_abi:
             raise ValueError(
                 f"No deployEvent configuration found for factory {factory_address}"
             )
 
-        logger.info(f"using event config: {json.dumps(factory_abi)}")
+        logger.info(f"Using event config: {json.dumps(event_abi)}")
         factory_contract = provider.eth.contract(
-            address=Web3.to_checksum_address(factory_address), abi=factory_abi
+            address=Web3.to_checksum_address(factory_address), abi=event_abi
         )
 
-        if len(factory_abi) != 1:
+        if len(event_abi) != 1:
             raise ValueError(
-                f"Event abi should contain only one event, found {len(factory_abi)} events for {factory_address}"
+                f"Event abi should contain only one event, found {len(event_abi)} events for {factory_address}"
             )
 
         # factory['deployEventAbi'][0] = eventAbi
-        factory_config = factory_abi[0]
+        factory_config = event_abi[0]
         if factory_config["type"] != "event":
             raise ValueError(
                 f"Event abi should contain only one event, found {factory_config['type']} for {factory_address}"
             )
 
-        # Get block range for the last 2 hours
+        # Get block range for the last 25 hours because the script is run daily
         latest_block = provider.eth.block_number
-        blocks_per_hour = 7200 // 12  # ~600 blocks
-        from_block = latest_block - blocks_per_hour
+        blocks_per_day = 7500  # 25 * 60 * 60 // 12
+        from_block = latest_block - blocks_per_day
 
         strategies = []
 
@@ -88,47 +94,23 @@ class FactoryScanner:
         event_signature = (
             f"{factory_config['name']}({','.join(input['type'] for input in inputs)})"
         )
-        logger.info(f"event_signature: {event_signature}")
         event_signature_hash = f"0x{Web3.keccak(text=event_signature).hex()}"
 
-        logger.info(f"Event name: {event_func.event_name}")
-        logger.info(f"Event signature: {event_signature}")
-        logger.info(f"Event signature hash: {event_signature_hash}")
-        logger.info(f"Contract address: {factory_contract.address}")
-        logger.info(f"Scanning blocks from {from_block} to {latest_block}")
-
-        # Fetch logs with more specific filter
-        try:
-            # Ensure proper hex formatting for parameters
-            filter_params = {
-                "fromBlock": hex(from_block),
-                "toBlock": hex(latest_block),
-                "address": Web3.to_checksum_address(factory_address),
-                "topics": [event_signature_hash],
-            }
-            logger.info(f"Filter params: {filter_params}")
-            logs = provider.eth.get_logs(filter_params)
-        except Exception as e:
-            logger.error(f"Error fetching logs: {str(e)}")
-            # Try with a smaller block range
-            blocks_per_hour = 300  # Reduce to ~1 hour worth of blocks
-            from_block = latest_block - blocks_per_hour
-            logger.info(
-                f"Retrying with smaller block range: {from_block} to {latest_block}"
-            )
-            filter_params["fromBlock"] = hex(from_block)
-            filter_params["toBlock"] = hex(latest_block)
-            logs = provider.eth.get_logs(filter_params)
+        # Ensure proper hex formatting for parameters
+        filter_params = {
+            "fromBlock": hex(from_block),
+            "toBlock": hex(latest_block),
+            "address": Web3.to_checksum_address(factory_address),
+            "topics": [event_signature_hash],
+        }
+        logs = provider.eth.get_logs(filter_params)
 
         if not logs:
             logger.info(f"No logs found for blocks {from_block}-{latest_block}")
             return []
 
-        logger.info(f"Found {len(logs)} logs")
-        logger.info(f"First log: {logs[0] if logs else None}")
-
         # Process events
-        strategy_param = factory_config.get("strategyParam", "strategy")
+        strategy_param = deployment.get("eventStrategyParamName", "strategy")
         strategy_dir = self.strategy_dir / chain_id
 
         for log in logs:
@@ -156,16 +138,9 @@ class FactoryScanner:
                     if not strategy_file.exists():
                         strategies.append(strategy_address)
             else:
-                # Fallback: try to find first address type parameter
-                for arg_name, arg_value in args.items():
-                    if isinstance(arg_value, str) and Web3.is_address(arg_value):
-                        strategy_file = strategy_dir / f"{arg_value}.json"
-                        if not strategy_file.exists():
-                            strategies.append(arg_value)
-                        else:
-                            logger.info(
-                                f"strategy file already exists: {strategy_file}"
-                            )
+                raise ValueError(
+                    f"No strategy param found in event {event_func.event_name}. Args: {args}"
+                )
 
         return strategies
 
@@ -220,15 +195,19 @@ class FactoryScanner:
 
             for factory_file in chain_dir.glob("*.json"):
                 factory_address = factory_file.stem
-                if factory_address.__contains__("dead"):
-                    logger.info(f"skipping file: {factory_address}")
+                # skip example factories
+                if (
+                    factory_address == "0x000000000000000000000000000000000000dead"
+                    or factory_address == "0x90E46590c1f18Bb8aAF73b5A3a377f74B0eE2d83"
+                ):
                     continue
 
+                logger.info(f"Scanning factory {factory_address}")
                 with open(factory_file) as f:
                     factory_data = json.load(f)
 
                 strategies = self.scan_factory(chain_id, factory_address, factory_data)
-
+                logger.info(f"Found {len(strategies)} strategies")
                 for strategy in strategies:
                     self.create_strategy_file(chain_id, strategy, factory_data)
 
