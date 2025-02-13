@@ -190,3 +190,11 @@ About the automation of attaching risk scores to strategies see following:
 
 - [Strategy](./strategy/STRATEGY.md)
 - [Factory](./factory/FACTORY.md)
+
+## Asset
+
+Analysis of the asset is available in the [asset](./asset) folder.
+
+## Protocol
+
+Analysis of the protocol is available in the [protocol](./protocol) folder.
