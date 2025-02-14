@@ -1,0 +1,17 @@
+{
+    "riskLevel": 3,
+    "riskScore": {
+        "review": 3,
+        "testing": 2,
+        "complexity": 3,
+        "riskExposure": 5,
+        "protocolIntegration": 2,
+        "centralizationRisk": 5,
+        "externalProtocolAudit": 1,
+        "externalProtocolCentralisation": 2,
+        "externalProtocolTvl": 2,
+        "externalProtocolLongevity": 4,
+        "externalProtocolType": 1,
+        "comment": "Uses cross asset collateral"
+    }
+}
