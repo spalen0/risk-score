@@ -14,7 +14,9 @@ Despite these concerns, the system incorporates some positive features such as r
 - [Contracts repository](https://github.com/Se7en-Seas/boring-vault/)
 - [Funds flow](https://docs.veda.tech/integrations/ui-integration)
 
-## Components Analysis
+## Protocol Analysis
+
+VEDA protocol is a modular DeFi vault system where components interact through a complex role-based authority structure. The main components are:
 
 ### Teller
 
@@ -67,6 +69,10 @@ Despite these concerns, the system incorporates some positive features such as r
 - No dependency between modules/contracts, meaning permissioned accounts can do almost anything
 - All core function access can be changed by Authority contract
 - Authority contract owner is 4/6 multisig
+<<<<<<< HEAD
+- Exchange rates are update without onchain verification
+=======
+>>>>>>> master
 - Exchange rates can be manipulated within defined ranges, potentially favoring certain exits or causing accounting errors
 - Exchage rate is updated by 2/4 multisig
 - Exchange rate can be updated every [6 hours](https://etherscan.io/address/0xbe16605b22a7facef247363312121670dfe5afbe#readContract#F1) and only by 0.5% down without pausing Accountant contract. Pausing the contract will block any withdrawal because calcuclating rate in [Teller contract](https://github.com/Se7en-Seas/boring-vault/blob/0e23e7fd3a9a7735bd3fea61dd33c1700e75c528/src/base/Roles/TellerWithMultiAssetSupport.sol#L455C55-L455C73) will [revert](https://github.com/Se7en-Seas/boring-vault/blob/0e23e7fd3a9a7735bd3fea61dd33c1700e75c528/src/base/Roles/AccountantWithRateProviders.sol#L388).
@@ -206,13 +212,11 @@ bytes4(keccak256("bulkWithdraw(address,uint256,uint256,address)"))       = 0x3e6
 -- Simple query for BulkWithdraw events using only standard functions
 SELECT
     block_time,
-    block_number,
     tx_hash,
-    index,
     contract_address,
-    topic0,  -- Event signature
-    topic1,  -- First indexed parameter (asset address)
-    data     -- Non-indexed parameter (shareAmount)
+    topic0 as event_signature,  -- Event signature
+    topic1 as asset_address,  -- First indexed parameter (asset address)
+    data as share_amount     -- Non-indexed parameter (shareAmount)
 FROM ethereum.logs
 WHERE contract_address = 0x221Ea02d409074546265CCD1123050F4D498ef64
 -- BulkWithdraw event signature: keccak256("BulkWithdraw(address,uint256)")
@@ -227,14 +231,12 @@ LIMIT 10
 -- Simple query for ExchangeRateUpdated events using only standard functions
 SELECT
     block_time,
-    block_number,
     tx_hash,
-    index,
     contract_address,
-    topic0,  -- Event signature
-    topic1,  -- First parameter (oldRate uint96)
-    topic2,  -- newRate
-    topic3   -- currentTime
+    topic0 as event_signature,  -- Event signature
+    varbinary_to_uint256(topic1) as old_rate,  -- First parameter (oldRate uint96)
+    varbinary_to_uint256(topic2) as new_rate,  -- newRate
+    varbinary_to_uint256(topic3) as current_time  -- currentTime
 FROM ethereum.logs
 WHERE contract_address = 0xc315D6e14DDCDC7407784e2Caf815d131Bc1D3E7
 -- BulkWithdraw event signature: keccak256("ExchangeRateUpdated(uint96,uint96,uint64)")
@@ -248,14 +250,12 @@ LIMIT 10
 ```sql
 SELECT
     block_time,
-    block_number,
     tx_hash,
-    index,
     contract_address,
-    topic0,  -- Event signature
-    topic1,  -- role
-    topic2,  -- address target
-    topic3   -- bytes4 functionSig
+    topic0 as event_signature,  -- Event signature
+    varbinary_to_uint256(topic1) as role_id,  -- role
+    topic2 as target_address,  -- address target
+    SUBSTRING(topic3 FROM 1 FOR 4)  as function_sig   -- bytes4 functionSig
 FROM ethereum.logs
 WHERE contract_address = 0xaBA6bA1E95E0926a6A6b917FE4E2f19ceaE4FF2e
 -- RoleCapabilityUpdated event signature: keccak256("RoleCapabilityUpdated (index_topic_1 uint8 role, index_topic_2 address target, index_topic_3 bytes4 functionSig, bool enabled)")
@@ -271,14 +271,12 @@ LIMIT 10
 -- Simple query for UserRoleUpdated events using only standard functions
 SELECT
     block_time,
-    block_number,
     tx_hash,
-    index,
     contract_address,
-    topic0,  -- Event signature
-    topic1,  -- address user
-    topic2,  -- uint8 role
-    topic3   -- enabled
+    topic0 as event_signature,  -- Event signature
+    topic1 as user_address,  -- address user
+    varbinary_to_uint256(topic2) as role_id,  -- uint8 role
+    topic3 as enabled_flag  -- enabled
 FROM ethereum.logs
 WHERE contract_address = 0xaBA6bA1E95E0926a6A6b917FE4E2f19ceaE4FF2e
 -- UserRoleUpdated event signature: keccak256("UserRoleUpdated (index_topic_1 address user, index_topic_2 uint8 role, bool enabled)")
@@ -293,12 +291,10 @@ LIMIT 10
 -- Simple query for BoringVaultManaged events using only standard functions
 SELECT
     block_time,
-    block_number,
     tx_hash,
-    index,
     contract_address,
-    topic0,  -- Event signature
-    topic1   -- callsMade
+    topic0 as event_signature,  -- Event signature
+    topic1 as calls_made  -- callsMade
 FROM ethereum.logs
 WHERE contract_address = 0xcff411d5c54fe0583a984bee1ef43a4776854b9a
 -- BoringVaultManaged event signature: keccak256("BoringVaultManaged(uint256)")
