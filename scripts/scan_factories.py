@@ -18,18 +18,6 @@ BLOCK_TIME = {
 }
 
 
-# Load ABI files
-def load_abi(file_path):
-    with open(file_path) as f:
-        abi_data = json.load(f)
-        if isinstance(abi_data, dict):
-            return abi_data["result"]
-        elif isinstance(abi_data, list):
-            return abi_data
-        else:
-            raise ValueError("Invalid ABI format")
-
-
 class FactoryScanner:
     def __init__(self):
         self.factory_dir = Path("strategy/factory")
