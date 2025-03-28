@@ -59,3 +59,9 @@ function_sig,function_name
 0xa5672fd7,replaceOnChainWithdraw
 0x8f386608,boringRedeemMintSelfSolve
 0x72faf4a4,boringRedeemSelfSolve
+0xbdca5fbd,updateDelay
+0xc10af4c7,updateManagementFee
+0x4a5e42b1,removeAsset
+0x298410e5,addAsset
+0xf51b1aca,setInboundRateLimits
+0xe96e38e2,setOutboundRateLimits

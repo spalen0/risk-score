@@ -15,6 +15,7 @@ BLOCK_TIME = {
     "1": 12,
     "137": 2,
     "8453": 2,
+    "42161": 0.25,
 }
 
 
@@ -72,7 +73,7 @@ class FactoryScanner:
         # Get block range for the last 30 hours because the script is run daily
         latest_block = provider.eth.block_number
         blocks_per_day = 3600 * 30 // BLOCK_TIME[chain_id]
-        from_block = latest_block - blocks_per_day
+        from_block = latest_block - int(blocks_per_day)
 
         strategies = []
 
@@ -180,14 +181,15 @@ class FactoryScanner:
 
     def scan_all_factories(self):
         """Scan all factories across all chains."""
+        logger.info(f"Starting to scan factory directory: {self.factory_dir}")
         for chain_dir in self.factory_dir.iterdir():
             if not chain_dir.is_dir() or not chain_dir.name.isdigit():
+                logger.info(f"Skipping non-chain directory: {chain_dir.name}")
                 continue
 
             chain_id = chain_dir.name
-            logger.info(f"Scanning chain {chain_id}")
-
-            for factory_file in chain_dir.glob("*.json"):
+            factory_files = list(chain_dir.glob("*.json"))
+            for factory_file in factory_files:
                 factory_address = factory_file.stem
                 # skip example factories
                 if (

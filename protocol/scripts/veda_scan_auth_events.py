@@ -31,7 +31,6 @@ import csv
 import json
 import logging
 import os
-import time
 from collections import defaultdict
 from functools import lru_cache
 from pathlib import Path
@@ -48,6 +47,7 @@ logger = logging.getLogger(__name__)
 PUBLIC_ROLE_ID = -1
 PUBLIC_ROLE_NAME = "Public"
 PUBLIC_ADDRESS = "any_address"
+
 
 def get_web3(chain_id: int) -> Web3:
     """
@@ -175,12 +175,24 @@ def process_events_to_table(
     table_rows = []
     owner_address = None
 
-    # First pass: build mappings
+    # Create a list of all events with their block numbers for sorting
+    all_events = []
     for event_name, logs in events.items():
         for log in logs:
-            args = dict(log.args) if hasattr(log, "args") else log["args"]
+            block_number = (
+                log.blockNumber if hasattr(log, "blockNumber") else log["blockNumber"]
+            )
+            all_events.append((block_number, event_name, log))
 
-            if event_name == "UserRoleUpdated":
+    # Sort all events by block number
+    all_events.sort(key=lambda x: x[0])  # Sort by block_number
+
+    # Process events in chronological order
+    for block_number, event_name, log in all_events:
+        args = dict(log.args) if hasattr(log, "args") else log["args"]
+
+        match event_name:
+            case "UserRoleUpdated":
                 role = (
                     int(args["role"]) if isinstance(args["role"], str) else args["role"]
                 )
@@ -189,7 +201,7 @@ def process_events_to_table(
                 else:
                     role_addresses[role].discard(args["user"])
 
-            elif event_name == "RoleCapabilityUpdated":
+            case "RoleCapabilityUpdated":
                 role = (
                     int(args["role"]) if isinstance(args["role"], str) else args["role"]
                 )
@@ -197,7 +209,6 @@ def process_events_to_table(
                 if isinstance(args["functionSig"], bytes):
                     sig = "0x" + args["functionSig"].hex()
                 else:
-                    # If it's a string, ensure it starts with 0x
                     sig = (
                         args["functionSig"]
                         if args["functionSig"].startswith("0x")
@@ -208,24 +219,25 @@ def process_events_to_table(
                 else:
                     role_permissions[role][args["target"]].discard(sig)
 
-            elif event_name == "PublicCapabilityUpdated":
+            case "PublicCapabilityUpdated":
                 if isinstance(args["functionSig"], bytes):
                     sig = "0x" + args["functionSig"].hex()
                 else:
-                    # If it's a string, ensure it starts with 0x
                     sig = (
                         args["functionSig"]
                         if args["functionSig"].startswith("0x")
                         else "0x" + args["functionSig"]
                     )
-                role_permissions[PUBLIC_ROLE_ID][args["target"]].add(sig)
                 if args["enabled"]:
+                    role_permissions[PUBLIC_ROLE_ID][args["target"]].add(sig)
                     role_addresses[PUBLIC_ROLE_ID].add(PUBLIC_ADDRESS)
                 else:
+                    role_permissions[PUBLIC_ROLE_ID][args["target"]].discard(sig)
                     role_addresses[PUBLIC_ROLE_ID].discard(PUBLIC_ADDRESS)
 
-            # elif event_name == "OwnershipTransferred":
-            #     owner_address = args["newOwner"]
+            case _:  # Default case
+                logger.info(f"Unknown event: {event_name}")
+                pass  # Handle any other event names if needed
 
     # Second pass: generate table rows
     for role, addresses in role_addresses.items():
@@ -237,8 +249,8 @@ def process_events_to_table(
                         "Role ID": role,
                         "User Name": get_contract_name(user_address, chain_id),
                         "Target Name": get_contract_name(target, chain_id),
-                        "Function Names": name,
-                        "Function Signatures": sig,  # This will always have 0x prefix now
+                        "Function Name": name,
+                        "Function Signature": sig,  # This will always have 0x prefix now
                         "User Address": user_address,
                         "Target Address": target,
                     }
@@ -275,26 +287,24 @@ def get_contract_name_from_etherscan(address: str, chain_id: int) -> str:
     """
     Get contract name from Etherscan API by searching source code for known contract names
     """
-    # Known contract names we're looking for
     KNOWN_CONTRACT_NAMES = {
-        "BoringVault": ["BoringVault"],
-        "Teller": [
-            "TellerWithMultiAssetSupport",
-            "Teller",
-            "TellerWithRemediation",
-            "LayerZeroTeller",
-        ],
-        "BoringOnChainQueue": ["BoringOnChainQueue", "OnChainQueue"],
+        # "BoringVault": ["BoringVault"],
+        # "Teller": [
+        #     "TellerWithMultiAssetSupport",
+        #     "Teller",
+        #     "TellerWithRemediation",
+        #     "LayerZeroTeller",
+        #     "LayerZeroTellerWithRateLimiting"
+        # ],
+        # "BoringOnChainQueue": ["BoringOnChainQueue", "OnChainQueue"],
         "Manager": ["ManagerWithMerkleVerification"],
-        "BoringSolver": ["BoringSolver", "Solver"],
-        "Pauser": ["Pauser"],
-        "Accountant": ["AccountantWithFixedRate", "AccountantWithRateProviders"],
-        "Timelock": ["TimelockController"],
-        "Queue": [
-            "WithdrawQueue",
-            "BoringOnChainQueue",
-            "BoringOnChainQueueWithTracking",
-        ],
+        # "Accountant": ["AccountantWithFixedRate", "AccountantWithRateProviders"],
+        # "Timelock": ["TimelockController"],
+        # "Queue": [
+        #     "WithdrawQueue",
+        #     "BoringOnChainQueue",
+        #     "BoringOnChainQueueWithTracking",
+        # ],
         "Multisig": [
             "Proxy",
             "SafeProxy",
@@ -314,14 +324,6 @@ def get_contract_name_from_etherscan(address: str, chain_id: int) -> str:
 
         response = requests.get(api_url, params=params)
         data = response.json()
-
-        if (
-            data.get("message") == "NOTOK"
-            and "rate limit" in data.get("result", "").lower()
-        ):
-            logger.warning("Rate limit hit, waiting 1 second...")
-            time.sleep(1)
-            return get_contract_name_from_etherscan(address, chain_id)
 
         if data["status"] == "1" and data["result"][0]:
             # First check if ContractName is provided directly by Etherscan
@@ -351,20 +353,12 @@ def get_contract_name_from_etherscan(address: str, chain_id: int) -> str:
                 )
                 return contract_name
 
-            source_code = data["result"][0].get("SourceCode", "")
-            logger.info(f"Source code: {source_code}")
-            if len(source_code) < 10:
-                return "EOA"
+            if data["result"][0].get("ABI") == "Contract source code not verified":
+                return "Unverified Contract"
 
-            # Fallback to finding the contract name in the source code
-            for display_name, possible_names in KNOWN_CONTRACT_NAMES.items():
-                for contract_name in possible_names:
-                    # Look for "contract ContractName {" pattern
-                    if f"contract {contract_name}" in source_code:
-                        logger.info(
-                            f"Found contract {display_name} at {address} using fallback method"
-                        )
-                        return display_name
+            source_code = data["result"][0].get("SourceCode", "")
+            if not source_code:
+                return "EOA"
 
         elif data["status"] == "0":
             logger.warning(
@@ -423,9 +417,7 @@ def get_contract_name(address: str, chain_id: int) -> str:
     # Local mapping for known contracts
     contract_names = {
         "0x358CFACf00d0B4634849821BB3d1965b472c776a": "Teller",
-        "0x3754480db8b3E607fbE125697EB496a44A1Be720": "BoringOnChainQueue",
         PUBLIC_ADDRESS: PUBLIC_ROLE_NAME,
-        # ... etc
     }
 
     # Try local mapping first
@@ -530,7 +522,6 @@ def get_events(
         to_block=to_block,
     )
 
-    # Save to cache if enabled
     if use_cache:
         save_events_to_file(events, cache_file)
 
@@ -548,7 +539,6 @@ def save_markdown_table(
     """Save the roles and permissions data as a markdown table"""
     filename = f"protocol/data/{vault_name}-auth-{contract_address}-{chain_id}.md"
     with open(filename, "w") as f:
-        # Write table header
         f.write(
             f"# Authorization Roles and Permissions for Authority contract {contract_address}\n\n"
         )
@@ -558,7 +548,7 @@ def save_markdown_table(
         if owner:
             f.write(f"Last owner of the authority contract is: {owner}\n\n")
         f.write(
-            "| User Name | Target Name | Function Names | Function Signatures | User Address | Target Address |\n"
+            "| User Name | Target Name | Function Name | Function Signature | User Address | Target Address |\n"
         )
         f.write(
             "|-----------|-------------|----------------|-------------------|--------------|----------------|\n"
@@ -567,8 +557,8 @@ def save_markdown_table(
         # Write table rows
         for row in table_rows:
             f.write(
-                f"| {row['User Name']} | {row['Target Name']} | {row['Function Names']} | "
-                f"{row['Function Signatures']} | {row['User Address']} | {row['Target Address']} |\n"
+                f"| {row['User Name']} | {row['Target Name']} | {row['Function Name']} | "
+                f"{row['Function Signature']} | {row['User Address']} | {row['Target Address']} |\n"
             )
 
     logger.info(f"Table saved to {filename}")
@@ -647,11 +637,7 @@ def get_contract_deployment_info(
         return 0, 0
 
 
-# Usage example
 if __name__ == "__main__":
-    # Load function signatures first
-    function_signatures = load_function_signatures()
-
     # TODO: define these values before running the script
     chain_id = 1
     boring_vault_address = ""
@@ -688,6 +674,7 @@ if __name__ == "__main__":
         use_cache=True,  # Set to False to force blockchain scan
     )
 
+    function_signatures = load_function_signatures()
     # Process events into table format
     table_rows, owner_address = process_events_to_table(
         events, function_signatures, chain_id
